@@ -3,6 +3,7 @@
 A high-throughput, SEC-compliant Python library and data pipeline designed to parse top-level income statement metrics (Total Revenue, Cost of Revenue, Operating Expenses, Net Profit) and multidimensional segment breakdowns (Product Lines, Business Units) directly from free SEC EDGAR XBRL endpoints.
 
 Outputs normalized, reconciled data structured specifically for **Sankey diagrams** and quantitative financial modeling.
+The exporter now emits a layered graph model with explicit `nodes` and `links`, suitable for Tencent-style financial flow diagrams.
 
 ---
 
@@ -12,7 +13,7 @@ Outputs normalized, reconciled data structured specifically for **Sankey diagram
 * **Taxonomy Fallback Engine:** Handles variations in US-GAAP reporting tags across historical 10-K and 10-Q filings using ordered concept resolution chains.
 * **Dimensional Segment Extraction:** Unpacks Inline XBRL explicit member dimensions (`StatementBusinessSegmentsAxis`, `ProductOrServiceAxis`) to isolate revenue by product line or division.
 * **Automated Data Quality Gate:** Reconciles the sum of segment revenues against reported top-level revenue with automatic residual calculation for corporate/unallocated line items.
-* **Sankey-Ready Export:** Generates standardized JSON flows (`Source -> Target -> Value`) ready for Plotly, D3.js, or SankeyMATIC.
+* **Tencent-Style Sankey Export:** Generates explicit graph output with `nodes`, `links`, `top_level`, and `segment_breakdown` sections for layered flow visualizations.
 
 ---
 
@@ -66,9 +67,9 @@ edgardata/
 ├── pipeline/
 │   └── reconciliation.py    # Quality check & tolerance validation module
 ├── models/
-│   └── schema.py            # Pydantic data models for financial metrics
+│   └── schema.py            # Pydantic data models for metrics, Sankey nodes, and graph output
 ├── exports/
-│   └── sankey_exporter.py   # Converts normalized data to Sankey JSON format
+│   └── sankey_exporter.py   # Converts normalized data to layered Sankey graph output
 ├── tests/                   # Unit & integration tests
 ├── README.md
 └── requirements.txt
@@ -93,7 +94,7 @@ pip install -r requirements.txt
 ```python
 from ingestion.edgar_client import EdgarIngestionEngine
 from parser.taxonomy_mapper import FinancialTaxonomyParser
-from exports.sankey_exporter import export_to_sankey_json
+from exports.sankey_exporter import build_tencent_style_sankey_graph
 
 # 1. Initialize client with compliant User-Agent
 client = EdgarIngestionEngine(user_agent="MyDataCorp admin@mydatacorp.com")
@@ -106,23 +107,62 @@ parser = FinancialTaxonomyParser(raw_facts)
 financial_data = parser.extract_income_statement(fiscal_year=2025, fiscal_period="FY")
 
 # 4. Generate Sankey-ready JSON output
-sankey_json = export_to_sankey_json(financial_data)
-print(sankey_json)
+graph = build_tencent_style_sankey_graph(financial_data)
+print(graph.model_dump())
 ```
 
 ---
 
-## 📊 Sample Sankey Output Schema
+## 📊 Sankey Graph Schema
+
+The exporter returns a layered graph that can be rendered directly by Plotly, D3.js, or any Sankey-compatible frontend.
+
+### Node model
+
+Each node includes:
+
+* `id`: stable identifier used by links
+* `label`: display text shown in the diagram
+* `stage`: layout layer in the flow graph
+* `kind`: semantic category such as `segment`, `subtotal`, `expense`, `expense_detail`, or `final`
+* `value`: node magnitude used for sizing
+
+### Link model
+
+Each link includes:
+
+* `source`: upstream node id
+* `target`: downstream node id
+* `value`: flow amount
+* `kind`: flow classification
+
+### Example output
 
 ```json
 {
   "ticker": "AAPL",
   "period": "FY2025",
   "currency": "USD",
+  "nodes": [
+    { "id": "segment_iphone", "label": "iPhone", "stage": 0, "kind": "segment", "value": 200583000000 },
+    { "id": "revenue", "label": "Revenue", "stage": 1, "kind": "subtotal", "value": 383285000000 },
+    { "id": "gross_profit", "label": "Gross profit", "stage": 2, "kind": "subtotal", "value": 169148000000 },
+    { "id": "operating_expenses", "label": "Operating expenses", "stage": 3, "kind": "expense", "value": 54847000000 },
+    { "id": "operating_profit", "label": "Operating profit", "stage": 4, "kind": "subtotal", "value": 114301000000 },
+    { "id": "net_profit", "label": "Net profit", "stage": 5, "kind": "final", "value": 96995000000 }
+  ],
+  "links": [
+    { "source": "segment_iphone", "target": "revenue", "value": 200583000000, "kind": "flow" },
+    { "source": "revenue", "target": "gross_profit", "value": 169148000000, "kind": "flow" },
+    { "source": "gross_profit", "target": "operating_profit", "value": 114301000000, "kind": "flow" },
+    { "source": "operating_profit", "target": "net_profit", "value": 96995000000, "kind": "flow" }
+  ],
   "top_level": {
     "total_revenue": 383285000000,
     "cost_of_revenue": 214137000000,
+    "gross_profit": 169148000000,
     "operating_expenses": 54847000000,
+    "operating_profit": 114301000000,
     "net_profit": 96995000000
   },
   "segment_breakdown": [
@@ -134,6 +174,33 @@ print(sankey_json)
   ]
 }
 ```
+
+If operating expense detail facts are available, the exporter can also add optional `expense_detail` nodes under `operating_expenses` for branches like `R&D`, `Sales & marketing`, and `General & admin`.
+
+### Graph schema reference
+
+**`SankeyNode`**
+
+* `id`: stable node identifier used by links
+* `label`: text shown on the diagram
+* `stage`: layout layer in the flow graph
+* `kind`: semantic type such as `segment`, `subtotal`, `expense`, `expense_detail`, or `final`
+* `value`: magnitude used for node sizing
+* `color`: optional display color
+
+**`SankeyLink`**
+
+* `source`: upstream node id
+* `target`: downstream node id
+* `value`: flow amount
+* `kind`: link classification, defaulting to `flow`
+
+**`ExpenseDetail`**
+
+* `expense_label`: branch label such as `R&D` or `Sales & marketing`
+* `value`: expense amount
+* `fiscal_year`: fiscal year of the filing
+* `fiscal_period`: fiscal period such as `FY` or `Q2`
 
 ---
 

@@ -27,6 +27,13 @@ class SegmentRevenue(BaseModel):
     fiscal_period: str
 
 
+class ExpenseDetail(BaseModel):
+    expense_label: str
+    value: float
+    fiscal_year: int
+    fiscal_period: str
+
+
 class IncomeStatementPayload(BaseModel):
     ticker: str
     cik: str
@@ -37,6 +44,7 @@ class IncomeStatementPayload(BaseModel):
     operating_expenses: Optional[float] = None
     net_profit: Optional[float] = None
     segments: list[SegmentRevenue] = Field(default_factory=list)
+    operating_expense_details: list[ExpenseDetail] = Field(default_factory=list)
 
 
 class ReconciliationResult(BaseModel):
@@ -49,3 +57,29 @@ class ReconciliationResult(BaseModel):
     status: str
     residual_value: float = 0.0
     residual_label: Optional[str] = None
+
+
+class SankeyNode(BaseModel):
+    id: str
+    label: str
+    stage: int
+    kind: str
+    value: float = 0.0
+    color: Optional[str] = None
+
+
+class SankeyLink(BaseModel):
+    source: str
+    target: str
+    value: float
+    kind: str = "flow"
+
+
+class SankeyGraph(BaseModel):
+    ticker: str
+    period: str
+    currency: str = "USD"
+    nodes: list[SankeyNode] = Field(default_factory=list)
+    links: list[SankeyLink] = Field(default_factory=list)
+    top_level: dict[str, Optional[float]] = Field(default_factory=dict)
+    segment_breakdown: list[dict[str, object]] = Field(default_factory=list)

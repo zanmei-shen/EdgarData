@@ -17,8 +17,10 @@ class EdgarIngestionEngine:
         self.settings = SecEdgarSettings(
             user_agent=user_agent,
             company_tickers_url=self.settings.company_tickers_url,
+            submissions_base_url=self.settings.submissions_base_url,
             companyfacts_base_url=self.settings.companyfacts_base_url,
             companyconcept_base_url=self.settings.companyconcept_base_url,
+            archives_base_url=self.settings.archives_base_url,
             requests_per_second=self.settings.requests_per_second,
             retry_attempts=self.settings.retry_attempts,
             retry_backoff_seconds=self.settings.retry_backoff_seconds,
@@ -62,7 +64,64 @@ class EdgarIngestionEngine:
         url = f"{self.settings.companyfacts_base_url}/CIK{padded_cik}.json"
         return self._get_json(url)
 
+    def fetch_submissions(self, cik: str) -> dict[str, Any]:
+        padded_cik = str(cik).zfill(10)
+        url = f"{self.settings.submissions_base_url}/CIK{padded_cik}.json"
+        return self._get_json(url)
+
+    def fetch_filing_index(self, cik: str, accession: str) -> dict[str, Any]:
+        cik_path = str(int(cik))
+        accession_path = accession.replace("-", "")
+        url = f"{self.settings.archives_base_url}/{cik_path}/{accession_path}/index.json"
+        return self._get_json(url)
+
+    def fetch_filing_document(self, cik: str, accession: str, document_name: str) -> bytes:
+        cik_path = str(int(cik))
+        accession_path = accession.replace("-", "")
+        url = f"{self.settings.archives_base_url}/{cik_path}/{accession_path}/{document_name}"
+        return self._get_bytes(url)
+
+    def fetch_filing_xbrl_instance(
+        self,
+        cik: str,
+        accession: str,
+        primary_document: str | None = None,
+    ) -> bytes:
+        index = self.fetch_filing_index(cik, accession)
+        items = index.get("directory", {}).get("item", [])
+        names = [item.get("name", "") for item in items if isinstance(item, dict)]
+        candidates = [name for name in names if name.lower().endswith("_htm.xml")]
+        if primary_document:
+            stem = primary_document.rsplit(".", 1)[0].lower()
+            preferred = [name for name in candidates if name.lower().startswith(stem)]
+            candidates = preferred or candidates
+        if not candidates:
+            raise FileNotFoundError(f"No XBRL instance found for accession {accession}")
+        return self.fetch_filing_document(cik, accession, candidates[0])
+
     def fetch_company_concept(self, cik: str, taxonomy: str, concept: str) -> dict[str, Any]:
         padded_cik = str(cik).zfill(10)
         url = f"{self.settings.companyconcept_base_url}/CIK{padded_cik}/{taxonomy}/{concept}.json"
         return self._get_json(url)
+
+    def _get_bytes(self, url: str) -> bytes:
+        retrying = Retrying(
+            retry=retry_if_exception_type((httpx.HTTPError, TimeoutError)),
+            stop=stop_after_attempt(self.settings.retry_attempts),
+            wait=wait_exponential(
+                multiplier=self.settings.retry_backoff_seconds,
+                min=self.settings.retry_backoff_seconds,
+                max=5.0,
+            ),
+            reraise=True,
+        )
+
+        for attempt in retrying:
+            with attempt:
+                self._rate_limit()
+                with httpx.Client(headers=self.headers, timeout=30.0) as client:
+                    response = client.get(url)
+                    response.raise_for_status()
+                    return response.content
+
+        raise RuntimeError("request failed")

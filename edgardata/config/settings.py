@@ -9,8 +9,10 @@ from dataclasses import dataclass
 class SecEdgarSettings:
     user_agent: str
     company_tickers_url: str = "https://www.sec.gov/files/company_tickers.json"
+    submissions_base_url: str = "https://data.sec.gov/submissions"
     companyfacts_base_url: str = "https://data.sec.gov/api/xbrl/companyfacts"
     companyconcept_base_url: str = "https://data.sec.gov/api/xbrl/companyconcept"
+    archives_base_url: str = "https://www.sec.gov/Archives/edgar/data"
     requests_per_second: float = 10.0
     retry_attempts: int = 3
     retry_backoff_seconds: float = 0.5

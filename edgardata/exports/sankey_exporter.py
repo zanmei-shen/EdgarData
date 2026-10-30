@@ -94,7 +94,7 @@ def build_tencent_style_sankey_graph(payload: IncomeStatementPayload) -> SankeyG
 
     return SankeyGraph(
         ticker=payload.ticker,
-        period=f"FY{payload.fiscal_year}",
+        period=_format_period_label(payload.fiscal_period, payload.fiscal_year),
         nodes=nodes,
         links=links,
         top_level=top_level,
@@ -108,6 +108,13 @@ def _segment_node_id(label: str) -> str:
 
 def _expense_node_id(label: str) -> str:
     return "expense_" + _slugify(label)
+
+
+def _format_period_label(fiscal_period: str, fiscal_year: int) -> str:
+    normalized_period = fiscal_period.upper().strip()
+    if normalized_period.startswith("Q"):
+        return f"{normalized_period}FY{fiscal_year}"
+    return f"{normalized_period}{fiscal_year}"
 
 
 def _slugify(label: str) -> str:

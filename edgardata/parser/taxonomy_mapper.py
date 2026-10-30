@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Iterable
 
 
@@ -38,6 +39,8 @@ class ResolvedConcept:
     fiscal_year: int
     fiscal_period: str
     form: str
+    period_start: str = ""
+    accession: str = ""
 
 
 def get_fallback_concepts(metric_name: str) -> tuple[str, ...]:
@@ -52,6 +55,8 @@ def resolve_metric_fact(
     metric_name: str,
     fiscal_year: int | None = None,
     fiscal_period: str | None = None,
+    period_start: str | None = None,
+    period_end: str | None = None,
     preferred_forms: tuple[str, ...] = ("10-K", "10-Q"),
     taxonomy: str = "us-gaap",
 ) -> ResolvedConcept | None:
@@ -72,6 +77,8 @@ def resolve_metric_fact(
             facts=facts,
             fiscal_year=fiscal_year,
             fiscal_period=fiscal_period,
+            period_start=period_start,
+            period_end=period_end,
             preferred_forms=preferred_forms,
         )
         if selected_fact is not None:
@@ -84,6 +91,8 @@ def resolve_metric_fact(
                 fiscal_year=int(selected_fact.get("fy", 0) or 0),
                 fiscal_period=str(selected_fact.get("fp", "")),
                 form=str(selected_fact.get("form", "")),
+                period_start=str(selected_fact.get("start", "")),
+                accession=str(selected_fact.get("accn", "")),
             )
 
     return None
@@ -115,26 +124,57 @@ def _select_best_fact(
     facts: Iterable[dict[str, Any]],
     fiscal_year: int | None,
     fiscal_period: str | None,
+    period_start: str | None,
+    period_end: str | None,
     preferred_forms: tuple[str, ...],
 ) -> dict[str, Any] | None:
-    candidates = [fact for fact in facts if _matches_period(fact, fiscal_year, fiscal_period)]
+    candidates = [
+        fact
+        for fact in facts
+        if _matches_period(fact, fiscal_year, fiscal_period, period_start, period_end)
+    ]
     if not candidates:
         return None
 
-    def sort_key(fact: dict[str, Any]) -> tuple[int, str, str]:
-        form_rank = preferred_forms.index(fact.get("form")) if fact.get("form") in preferred_forms else len(preferred_forms)
-        return (form_rank, str(fact.get("end", "")), str(fact.get("filed", "")))
+    def sort_key(fact: dict[str, Any]) -> tuple[int, int, str, str]:
+        form_rank = 1 if fact.get("form") in preferred_forms else 0
+        return (
+            form_rank,
+            0 if fact.get("fy") == fiscal_year and (fiscal_period is None or fact.get("fp") == fiscal_period) else 1,
+            str(fact.get("filed", "")),
+            str(fact.get("end", "")),
+        )
 
-    return sorted(candidates, key=sort_key)[0]
+    return max(candidates, key=sort_key)
 
 
 def _matches_period(
     fact: dict[str, Any],
     fiscal_year: int | None,
     fiscal_period: str | None,
+    period_start: str | None,
+    period_end: str | None,
 ) -> bool:
-    if fiscal_year is not None and fact.get("fy") not in (None, fiscal_year):
+    if fiscal_year is not None and fact.get("fy") != fiscal_year:
         return False
-    if fiscal_period is not None and fact.get("fp") not in (None, fiscal_period):
+    if fiscal_period is not None and fact.get("fp") != fiscal_period:
+        return False
+    if period_start is not None and fact.get("start") != period_start:
+        return False
+    if period_end is not None and fact.get("end") != period_end:
+        return False
+    if fiscal_period in {"Q1", "Q2", "Q3", "Q4"} and not _is_quarter_duration(fact):
         return False
     return True
+
+
+def _is_quarter_duration(fact: dict[str, Any]) -> bool:
+    start = fact.get("start")
+    end = fact.get("end")
+    if not start or not end:
+        return False
+    try:
+        duration_days = (date.fromisoformat(str(end)) - date.fromisoformat(str(start))).days + 1
+    except ValueError:
+        return False
+    return 70 <= duration_days <= 110

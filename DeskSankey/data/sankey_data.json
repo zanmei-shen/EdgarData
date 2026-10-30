@@ -1,0 +1,181 @@
+{
+  "ticker": "GOOG",
+  "period": "Q2FY2026",
+  "currency": "USD",
+  "nodes": [
+    {
+      "id": "segments",
+      "label": "Revenue segments",
+      "stage": 0,
+      "kind": "group",
+      "value": 119796000000.0,
+      "color": "#9aa5b1"
+    },
+    {
+      "id": "segment_googlesearchother",
+      "label": "GoogleSearchOther",
+      "stage": 0,
+      "kind": "segment",
+      "value": 63271000000.0,
+      "color": "#20791f"
+    },
+    {
+      "id": "segment_youtubeadvertisingrevenue",
+      "label": "YouTubeAdvertisingRevenue",
+      "stage": 0,
+      "kind": "segment",
+      "value": 11055000000.0,
+      "color": "#92b4d4"
+    },
+    {
+      "id": "segment_googlenetwork",
+      "label": "GoogleNetwork",
+      "stage": 0,
+      "kind": "segment",
+      "value": 7303000000.0,
+      "color": "#792c1f"
+    },
+    {
+      "id": "segment_subscriptionsplatformsanddevicesrevenue",
+      "label": "SubscriptionsPlatformsAndDevicesRevenue",
+      "stage": 0,
+      "kind": "segment",
+      "value": 12911000000.0,
+      "color": "#1f4e79"
+    },
+    {
+      "id": "revenue",
+      "label": "Revenue",
+      "stage": 1,
+      "kind": "subtotal",
+      "value": 119796000000.0,
+      "color": "#4f8cc9"
+    },
+    {
+      "id": "cost_of_revenue",
+      "label": "Cost of revenue",
+      "stage": 2,
+      "kind": "expense",
+      "value": 45943000000.0,
+      "color": "#b04f40"
+    },
+    {
+      "id": "gross_profit",
+      "label": "Gross profit",
+      "stage": 2,
+      "kind": "subtotal",
+      "value": 73853000000.0,
+      "color": "#4f8cc9"
+    },
+    {
+      "id": "operating_expenses",
+      "label": "Operating expenses",
+      "stage": 3,
+      "kind": "expense",
+      "value": 0.0,
+      "color": "#b04f40"
+    },
+    {
+      "id": "operating_profit",
+      "label": "Operating profit",
+      "stage": 4,
+      "kind": "subtotal",
+      "value": 73853000000.0,
+      "color": "#4f8cc9"
+    },
+    {
+      "id": "net_profit",
+      "label": "Net profit",
+      "stage": 5,
+      "kind": "final",
+      "value": 112193000000.0,
+      "color": "#6ea84f"
+    }
+  ],
+  "links": [
+    {
+      "source": "segment_googlesearchother",
+      "target": "revenue",
+      "value": 63271000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "segment_youtubeadvertisingrevenue",
+      "target": "revenue",
+      "value": 11055000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "segment_googlenetwork",
+      "target": "revenue",
+      "value": 7303000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "segment_subscriptionsplatformsanddevicesrevenue",
+      "target": "revenue",
+      "value": 12911000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "revenue",
+      "target": "gross_profit",
+      "value": 73853000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "revenue",
+      "target": "cost_of_revenue",
+      "value": 45943000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "gross_profit",
+      "target": "operating_profit",
+      "value": 73853000000.0,
+      "kind": "flow"
+    },
+    {
+      "source": "gross_profit",
+      "target": "operating_expenses",
+      "value": 0.0,
+      "kind": "flow"
+    },
+    {
+      "source": "operating_profit",
+      "target": "net_profit",
+      "value": 112193000000.0,
+      "kind": "flow"
+    }
+  ],
+  "top_level": {
+    "total_revenue": 119796000000.0,
+    "cost_of_revenue": 45943000000.0,
+    "gross_profit": 73853000000.0,
+    "operating_expenses": 0.0,
+    "operating_profit": 73853000000.0,
+    "net_profit": 112193000000.0
+  },
+  "segment_breakdown": [
+    {
+      "source": "GoogleSearchOther",
+      "target": "Revenue",
+      "value": 63271000000.0
+    },
+    {
+      "source": "YouTubeAdvertisingRevenue",
+      "target": "Revenue",
+      "value": 11055000000.0
+    },
+    {
+      "source": "GoogleNetwork",
+      "target": "Revenue",
+      "value": 7303000000.0
+    },
+    {
+      "source": "SubscriptionsPlatformsAndDevicesRevenue",
+      "target": "Revenue",
+      "value": 12911000000.0
+    }
+  ]
+}

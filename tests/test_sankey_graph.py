@@ -66,3 +66,21 @@ def test_build_tencent_style_sankey_graph_includes_expense_details_when_present(
     assert any(node.id == "expense_sales_marketing" for node in graph.nodes)
     assert any(link.source == "operating_expenses" and link.target == "expense_r_d" for link in graph.links)
     assert any(link.source == "operating_expenses" and link.target == "expense_sales_marketing" for link in graph.links)
+
+
+def test_build_tencent_style_sankey_graph_formats_quarter_period_label() -> None:
+    payload = IncomeStatementPayload(
+        ticker="AAPL",
+        cik="0000320193",
+        fiscal_year=2025,
+        fiscal_period="Q2",
+        total_revenue=100.0,
+        cost_of_revenue=40.0,
+        operating_expenses=20.0,
+        net_profit=30.0,
+        segments=[],
+    )
+
+    graph = build_tencent_style_sankey_graph(payload)
+
+    assert graph.period == "Q2FY2025"

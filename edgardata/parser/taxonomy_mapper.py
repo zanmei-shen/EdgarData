@@ -20,6 +20,34 @@ FALLBACK_CONCEPTS: dict[str, tuple[str, ...]] = {
     ),
     "operating_expenses": (
         "OperatingExpenses",
+        "OperatingCostsAndExpenses",
+        "CostsAndExpenses",
+        "OperatingCosts",
+        "SellingGeneralAndAdministrativeExpense",
+    ),
+
+    "operating_income": (
+        "OperatingIncomeLoss",
+    ),
+    "research_and_development": (
+        "ResearchAndDevelopmentExpense",
+    ),
+    "sales_and_marketing": (
+        "SellingAndMarketingExpense",
+    ),
+    "general_and_administrative": (
+        "GeneralAndAdministrativeExpense",
+    ),
+    "income_before_tax": (
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+    ),
+    "income_tax_expense": (
+        "IncomeTaxExpenseBenefit",
+    ),
+    "other_income_expense": (
+        "OtherNonoperatingIncomeExpense",
+        "NonoperatingIncomeExpense",
     ),
     "net_profit": (
         "NetIncomeLoss",

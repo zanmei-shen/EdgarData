@@ -17,8 +17,9 @@ if str(ROOT_DIR) not in sys.path:
 from edgardata.exports.sankey_exporter import build_tencent_style_sankey_graph
 from edgardata.ingestion.edgar_client import EdgarIngestionEngine
 from edgardata.models.schema import ExpenseDetail, IncomeStatementPayload, SegmentRevenue
-from edgardata.parser.segment_parser import extract_filing_segment_revenues
+from edgardata.parser.segment_parser import extract_filing_product_revenues, extract_filing_segment_revenues
 from edgardata.parser.taxonomy_mapper import resolve_metric_fact
+from edgardata.pipeline.financials import resolve_operating_expenses
 from edgardata.pipeline.reconciliation import reconcile_revenue
 
 APP_DIR = Path(__file__).resolve().parent
@@ -26,12 +27,26 @@ DATA_DIR = APP_DIR / "data"
 OUTPUT_PATH = DATA_DIR / "sankey_data.json"
 
 DEFAULT_KIND_COLORS = {
-    "segment": "#1f4e79",
-    "group": "#9aa5b1",
-    "subtotal": "#4f8cc9",
-    "expense": "#b04f40",
-    "expense_detail": "#d36b5e",
-    "final": "#6ea84f",
+    "segment": "#4E73DF",
+    "group": "#555555",
+    "subtotal": "#4C9A2A",
+    "expense": "#C82814",
+    "expense_detail": "#C82814",
+    "final": "#3D8F22",
+}
+
+PALETTE = {
+    "background": "#F5F5F5",
+    "search_blue": "#4E73DF",
+    "youtube_blue": "#7D9BE8",
+    "cloud_gold": "#E8B62A",
+    "subscription_gold": "#EDC441",
+    "gross_green": "#4C9A2A",
+    "operating_green": "#46962A",
+    "net_green": "#3D8F22",
+    "expense_red": "#C82814",
+    "title_blue": "#214B84",
+    "secondary_gray": "#555555",
 }
 
 st.set_page_config(page_title="DeskSankey", layout="wide")
@@ -164,7 +179,15 @@ def load_live_payload(ticker: str, fiscal_year: int, fiscal_period: str) -> Inco
         period_start=total_revenue.period_start or None,
         period_end=total_revenue.period_end or None,
     )
-    operating_expenses = resolve_metric_fact(
+    operating_income = resolve_metric_fact(
+        company_facts,
+        "operating_income",
+        fiscal_year=resolved_fiscal_year,
+        fiscal_period=resolved_fiscal_period,
+        period_start=total_revenue.period_start or None,
+        period_end=total_revenue.period_end or None,
+    )
+    reported_operating_expenses = resolve_metric_fact(
         company_facts,
         "operating_expenses",
         fiscal_year=resolved_fiscal_year,
@@ -172,9 +195,44 @@ def load_live_payload(ticker: str, fiscal_year: int, fiscal_period: str) -> Inco
         period_start=total_revenue.period_start or None,
         period_end=total_revenue.period_end or None,
     )
+    operating_expenses, expense_details = resolve_operating_expenses(
+        company_facts,
+        fiscal_year=resolved_fiscal_year,
+        fiscal_period=resolved_fiscal_period,
+        period_start=total_revenue.period_start or None,
+        period_end=total_revenue.period_end or None,
+        reported_operating_expenses=reported_operating_expenses,
+        total_revenue=total_revenue.value,
+        cost_of_revenue=cost_of_revenue.value if cost_of_revenue else None,
+        operating_income=operating_income.value if operating_income else None,
+    )
     net_profit = resolve_metric_fact(
         company_facts,
         "net_profit",
+        fiscal_year=resolved_fiscal_year,
+        fiscal_period=resolved_fiscal_period,
+        period_start=total_revenue.period_start or None,
+        period_end=total_revenue.period_end or None,
+    )
+    income_before_tax = resolve_metric_fact(
+        company_facts,
+        "income_before_tax",
+        fiscal_year=resolved_fiscal_year,
+        fiscal_period=resolved_fiscal_period,
+        period_start=total_revenue.period_start or None,
+        period_end=total_revenue.period_end or None,
+    )
+    other_income_expense = resolve_metric_fact(
+        company_facts,
+        "other_income_expense",
+        fiscal_year=resolved_fiscal_year,
+        fiscal_period=resolved_fiscal_period,
+        period_start=total_revenue.period_start or None,
+        period_end=total_revenue.period_end or None,
+    )
+    income_tax_expense = resolve_metric_fact(
+        company_facts,
+        "income_tax_expense",
         fiscal_year=resolved_fiscal_year,
         fiscal_period=resolved_fiscal_period,
         period_start=total_revenue.period_start or None,
@@ -194,6 +252,17 @@ def load_live_payload(ticker: str, fiscal_year: int, fiscal_period: str) -> Inco
                 fiscal_year=resolved_fiscal_year,
                 fiscal_period=resolved_fiscal_period,
             )
+            filing_html = client.fetch_filing_document(cik, total_revenue.accession, primary_document)
+            product_segments = extract_filing_product_revenues(
+                filing_html,
+                filing_xml,
+                period_start=total_revenue.period_start,
+                period_end=total_revenue.period_end,
+                fiscal_year=resolved_fiscal_year,
+                fiscal_period=resolved_fiscal_period,
+            )
+            if product_segments:
+                segments.extend(product_segments)
     return IncomeStatementPayload(
         ticker=ticker,
         cik=str(cik),
@@ -201,10 +270,13 @@ def load_live_payload(ticker: str, fiscal_year: int, fiscal_period: str) -> Inco
         fiscal_period=resolved_fiscal_period,
         total_revenue=total_revenue.value,
         cost_of_revenue=cost_of_revenue.value if cost_of_revenue else None,
-        operating_expenses=operating_expenses.value if operating_expenses else None,
+        operating_expenses=operating_expenses,
+        income_before_tax=income_before_tax.value if income_before_tax else None,
+        other_income_expense=other_income_expense.value if other_income_expense else None,
+        income_tax_expense=income_tax_expense.value if income_tax_expense else None,
         net_profit=net_profit.value if net_profit else None,
         segments=segments,
-        operating_expense_details=[],
+        operating_expense_details=expense_details,
     )
 
 
@@ -232,6 +304,38 @@ def lookup_primary_document_for_accession(submissions: dict[str, Any], accession
             documents = recent.get("primaryDocument", [])
             return documents[index] if index < len(documents) else None
     return None
+def combine_small_segments(payload: IncomeStatementPayload, threshold: float = 5_000_000_000) -> IncomeStatementPayload:
+    """Combine all revenue segments under the threshold into a single 'Other' segment."""
+
+    small_segments = []
+    large_segments = []
+
+    for seg in payload.segments:
+        if seg.value < threshold:
+            small_segments.append(seg)
+        else:
+            large_segments.append(seg)
+
+    # If no small segments, return unchanged
+    if not small_segments:
+        return payload
+
+    # Aggregate small segments
+    other_total = sum(seg.value for seg in small_segments)
+
+    other_segment = SegmentRevenue(
+        segment_axis="us-gaap:ProductOrServiceAxis",
+        segment_member="OtherMember",
+        segment_label="Other",
+        value=other_total,
+        fiscal_year=payload.fiscal_year,
+        fiscal_period=payload.fiscal_period,
+    )
+
+    # Replace segments list
+    payload.segments = large_segments + [other_segment]
+
+    return payload
 
 
 def payload_to_tables(payload: IncomeStatementPayload) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -276,30 +380,150 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
     nodes = graph_data["nodes"]
     links = graph_data["links"]
     node_ids = [node["id"] for node in nodes]
-    node_labels = [
-        f"{node['label']}<br>${node['value'] / 1_000_000_000:.1f}B"
-        for node in nodes
-    ]
     node_index = {node_id: index for index, node_id in enumerate(node_ids)}
-    node_colors = [node.get("color") or DEFAULT_KIND_COLORS.get(node.get("kind", ""), "#9aa5b1") for node in nodes]
-    link_colors = [hex_to_rgba(nodes[node_index[link["source"]]].get("color") or DEFAULT_KIND_COLORS.get(nodes[node_index[link["source"]]].get("kind", ""), "#9aa5b1"), 0.28) for link in links]
+    node_colors = []
+    for node in nodes:
+        color = node.get("color") or DEFAULT_KIND_COLORS.get(node.get("kind", ""), "#9aa5b1")
+        if node["id"] == "gross_profit":
+            color = PALETTE["gross_green"]
+        elif node["id"] in {"operating_profit", "income_before_tax"}:
+            color = PALETTE["operating_green"]
+        elif node["id"] == "net_profit":
+            color = PALETTE["net_green"]
+        elif node.get("kind") in {"expense", "expense_detail"}:
+            color = PALETTE["expense_red"]
+        elif node.get("kind") == "segment":
+            label = node.get("label", "").lower()
+            if "search" in label:
+                color = PALETTE["search_blue"]
+            elif "youtube" in label:
+                color = PALETTE["youtube_blue"]
+            elif "cloud" in label:
+                color = PALETTE["cloud_gold"]
+            elif any(word in label for word in ("subscription", "other")):
+                color = PALETTE["subscription_gold"]
+            else:
+                color = PALETTE["search_blue"]
+        node_colors.append(color)
+    for target_index, target in enumerate(nodes):
+        if target.get("kind") != "segment":
+            continue
+        incoming = [
+            link for link in links
+            if link["target"] == target["id"] and nodes[node_index[link["source"]]].get("kind") == "segment"
+        ]
+        if incoming:
+            largest_source = max(incoming, key=lambda link: link["value"])
+            merge_color = node_colors[node_index[largest_source["source"]]]
+            node_colors[target_index] = merge_color
+            for link in incoming:
+                node_colors[node_index[link["source"]]] = merge_color
+    revenue_index = node_index.get("revenue")
+    if revenue_index is not None:
+        revenue_sources = [
+            link for link in links
+            if link["target"] == "revenue"
+            and nodes[node_index[link["source"]]].get("kind") == "segment"
+        ]
+        if revenue_sources:
+            largest_revenue_source = max(revenue_sources, key=lambda link: link["value"])
+            node_colors[revenue_index] = node_colors[
+                node_index[largest_revenue_source["source"]]
+            ]
+    top_level = graph_data.get("top_level", {})
+    revenue = float(top_level.get("total_revenue") or 0)
+    gross_profit = float(top_level.get("gross_profit") or 0)
+    operating_profit = float(top_level.get("operating_profit") or 0)
+    net_profit = float(top_level.get("net_profit") or 0)
 
+    def metric_text(node: dict[str, Any]) -> str:
+        value = float(node.get("value") or 0)
+        label = node["label"]
+        if node["id"] in {"gross_profit", "operating_profit", "net_profit"}:
+            label = label.replace(" ", "<br>", 1)
+        elif node["id"] == "income_before_tax":
+            label = "Income before<br>tax"
+        if node["id"] == "revenue":
+            secondary = "100% of revenue"
+        elif node["id"] == "gross_profit":
+            secondary = f"{gross_profit / revenue:.0%} margin" if revenue else ""
+        elif node["id"] == "operating_profit":
+            secondary = f"{operating_profit / revenue:.0%} margin" if revenue else ""
+        elif node["id"] == "net_profit":
+            secondary = f"{net_profit / revenue:.0%} margin" if revenue else ""
+        elif node.get("kind") in {"expense", "expense_detail"}:
+            secondary = f"{value / revenue:.0%} of revenue" if revenue else ""
+        elif node.get("kind") == "segment":
+            secondary = f"{value / revenue:.0%} of revenue" if revenue else ""
+        else:
+            secondary = ""
+        return f"{label}<br>${value / 1_000_000_000:.1f}B<br>{secondary}"
+
+    # Fixed coordinates keep the financial story horizontal while expenses sit below it.
+    segment_nodes = [node for node in nodes if node.get("kind") == "segment"]
+    segment_y = [0.08 + index * (0.72 / max(len(segment_nodes), 1)) for index in range(len(segment_nodes))]
+    positions: dict[str, tuple[float, float]] = {
+        node["id"]: (0.24, 0.45) for node in nodes
+    }
+    for index, node in enumerate(segment_nodes):
+        positions[node["id"]] = (0.03, segment_y[index])
+    for node_id, x, y in (
+        ("revenue", 0.20, 0.45),
+        ("gross_profit", 0.40, 0.45),
+        ("operating_profit", 0.60, 0.45),
+        ("income_before_tax", 0.78, 0.45),
+        ("net_profit", 0.95, 0.45),
+        ("cost_of_revenue", 0.44, 0.78),
+        ("operating_expenses", 0.63, 0.78),
+    ):
+        if node_id in node_index:
+            positions[node_id] = (x, y)
+
+    expense_nodes = [
+        node for node in nodes
+        if node.get("kind") in {"expense_detail", "income", "expense"}
+        and node["id"] not in {"cost_of_revenue", "operating_expenses"}
+    ]
+    for index, node in enumerate(expense_nodes):
+        positions[node["id"]] = (0.78 + (index % 2) * 0.15, 0.70 + (index // 2) * 0.12)
+
+    node_x = [positions[node["id"]][0] for node in nodes]
+    node_y = [positions[node["id"]][1] for node in nodes]
+
+    link_colors = []
+    for link in links:
+        source = nodes[node_index[link["source"]]]
+        target = nodes[node_index[link["target"]]]
+        source_kind = source.get("kind")
+        target_kind = target.get("kind")
+        if source_kind == "segment":
+            color = node_colors[node_index[link["source"]]]
+        elif target_kind in {"expense", "expense_detail"}:
+            color = PALETTE["expense_red"]
+        else:
+            color = PALETTE["operating_green"]
+        link_colors.append(hex_to_rgba(color, 0.48))
+
+    node_labels = [metric_text(node) for node in nodes]
     fig = go.Figure(
         go.Sankey(
-            arrangement="snap",
+            arrangement="freeform",
             valueformat=",.0f",
             textfont={
-                    "family": "Georgia",
-                    "size": 15,
-                    "color": "#172033",
-                    "shadow": "none",
+                "family": "Inter, Segoe UI, sans-serif",
+                "size": 16,
+                "color": PALETTE["secondary_gray"],
+                "shadow": "none",
+                "weight": 700,
             },
             node={
-                "pad": 18,
-                "thickness": 18,
-                "line": {"color": "rgba(60,60,60,0.35)", "width": 0.6},
+                "pad": 34,
+                "thickness": 30,
+                "line": {"color": "rgba(0,0,0,0)", "width": 0},
                 "label": node_labels,
                 "color": node_colors,
+                "x": node_x,
+                "y": node_y,
             },
             link={
                 "source": [node_index[link["source"]] for link in links],
@@ -309,15 +533,42 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
             },
         )
     )
+    annotations = [
+        {
+            "x": 0.5,
+            "y": 1.14,
+            "xref": "paper",
+            "yref": "paper",
+            "text": f"<b>{graph_data.get('ticker', '')} {graph_data.get('period', '')} Income Statement</b>",
+            "showarrow": False,
+            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 38, "color": PALETTE["title_blue"]},
+        },
+        {
+            "x": 0.5,
+            "y": 1.075,
+            "xref": "paper",
+            "yref": "paper",
+            "text": "Revenue sources → profit conversion → expenses and tax",
+            "showarrow": False,
+            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 16, "color": PALETTE["secondary_gray"]},
+        },
+    ]
     fig.update_layout(
-    margin={"l": 20, "r": 20, "t": 20, "b": 20},
-    height=700,
-    font={
-        "family": "Trebuchet MS",
-        "size": 13,
-        "color": "#334155",
-    },
-)
+        margin={"l": 20, "r": 30, "t": 150, "b": 45},
+        height=900,
+        plot_bgcolor=PALETTE["background"],
+        paper_bgcolor=PALETTE["background"],
+        annotations=annotations,
+        font={
+            "family": "Inter, Segoe UI, sans-serif",
+            "size": 16,
+            "color": PALETTE["secondary_gray"],
+        },
+        hoverlabel={
+            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 15},
+            "bgcolor": "#ffffff",
+        },
+    )
     return fig
 
 
@@ -352,7 +603,7 @@ def build_color_controls(graph_data: dict[str, Any]) -> dict[str, str]:
                 st.caption("No nodes available in this section.")
             for index, node in enumerate(nodes):
                 default_color = node.get("color") or DEFAULT_KIND_COLORS.get(node.get("kind", ""), "#9aa5b1")
-                picker_key = f"color_{node['id']}"
+                picker_key = f"color_{node['id']}_{index}"
                 if picker_key not in st.session_state:
                     st.session_state[picker_key] = default_color
 
@@ -372,7 +623,7 @@ def build_color_controls(graph_data: dict[str, Any]) -> dict[str, str]:
 if "ticker_input" not in st.session_state:
     st.session_state.ticker_input = "AAPL"
 if "payload" not in st.session_state:
-    st.session_state.payload = load_sample_payload("AAPL", 2025, "FY")
+    st.session_state.payload = None
 if "source_mode" not in st.session_state:
     st.session_state.source_mode = "live"
 if "company_info" not in st.session_state:
@@ -407,19 +658,49 @@ if generate_clicked:
     st.session_state.ticker_input = ticker.upper().strip()
     st.session_state.fiscal_year_input = int(fiscal_year)
     if st.session_state.source_mode == "live":
-        live_payload = load_live_payload(st.session_state.ticker_input, int(fiscal_year), fiscal_period)
+        try:
+            live_payload = load_live_payload(
+                st.session_state.ticker_input,
+                int(fiscal_year),
+                fiscal_period,
+            )
+        except Exception as exc:
+            st.session_state.payload = None
+            st.session_state.company_info = {}
+            st.error(f"Unable to fetch data: {exc}")
+            st.stop()
         if live_payload is None:
-            st.warning("Live EDGAR lookup failed for this ticker, falling back to sample data.")
-            st.session_state.payload = load_sample_payload(st.session_state.ticker_input, int(fiscal_year), fiscal_period)
-            st.session_state.company_info = {"name": "Sample fallback", "ticker": st.session_state.ticker_input, "cik_str": st.session_state.payload.cik}
+            st.session_state.payload = None
+            st.session_state.company_info = {}
+            st.error(
+                f"No live data found for {st.session_state.ticker_input} "
+                f"{fiscal_period} FY{int(fiscal_year)}."
+            )
+            st.stop()
         else:
             st.session_state.payload = live_payload
+            st.session_state.payload = combine_small_segments(st.session_state.payload)
             client = EdgarIngestionEngine(user_agent=USER_AGENT)
             company_tickers = client.fetch_company_tickers()
-            st.session_state.company_info = lookup_company_record_for_ticker(st.session_state.ticker_input, company_tickers) or {"name": "Unknown", "ticker": st.session_state.ticker_input, "cik_str": st.session_state.payload.cik}
+            st.session_state.company_info = (
+                lookup_company_record_for_ticker(
+                    st.session_state.ticker_input,
+                    company_tickers,
+                )
+                or {
+                    "name": "Unknown",
+                    "ticker": st.session_state.ticker_input,
+                    "cik_str": st.session_state.payload.cik,
+                }
+            )
     else:
         st.session_state.payload = load_sample_payload(st.session_state.ticker_input, int(fiscal_year), fiscal_period)
+        #st.session_state.payload = combine_small_segments(st.session_state.payload)
         st.session_state.company_info = {"name": "Sample payload", "ticker": st.session_state.ticker_input, "cik_str": st.session_state.payload.cik}
+    st.session_state.payload = combine_small_segments(st.session_state.payload)
+if st.session_state.payload is None:
+    st.info("No data found. Enter a valid ticker and reporting period.")
+    st.stop()
 
 with right_col:
     top_level_df, segments_df, expenses_df = payload_to_tables(st.session_state.payload)
@@ -437,7 +718,7 @@ with right_col:
         f'<div class="desk-panel"><div class="desk-small"><strong>Matched company:</strong> {st.session_state.company_info.get("name", "Unknown")} | <strong>CIK:</strong> {str(st.session_state.company_info.get("cik_str", st.session_state.payload.cik)).zfill(10)}</div></div>',
         unsafe_allow_html=True,
     )
-    st.plotly_chart(sankey_figure(graph_data), use_container_width=True)
+    st.plotly_chart(sankey_figure(graph_data), width="stretch")
 
 st.divider()
 
@@ -459,6 +740,7 @@ with col_expenses:
 
 if st.button("Rebuild graph", use_container_width=True):
     st.session_state.payload = tables_to_payload(edited_top_level, edited_segments, edited_expenses)
+    st.session_state.payload = combine_small_segments(st.session_state.payload)
     reconciliation = reconcile_revenue(st.session_state.payload)
     graph = build_tencent_style_sankey_graph(st.session_state.payload)
     st.success("Graph rebuilt from the edited tables.")

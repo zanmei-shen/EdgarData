@@ -1,4 +1,5 @@
 from edgardata.parser.segment_parser import (
+    extract_filing_product_revenues,
     extract_filing_segment_revenues,
     extract_segment_revenues,
     group_segment_revenues_by_period,
@@ -6,9 +7,29 @@ from edgardata.parser.segment_parser import (
 )
 
 
+def test_extract_filing_product_revenues_reads_inline_xbrl_quarter_value() -> None:
+    xml = b'''<root xmlns="urn:test"><context id="q3"><period><startDate>2026-07-01</startDate><endDate>2026-09-30</endDate></period></context></root>'''
+    html = b'''<table><tr><td>Google Search &amp; other</td><td><ix:nonFraction name="us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax" contextRef="q3" scale="6">63,350</ix:nonFraction></td></tr></table>'''
+
+    segments = extract_filing_product_revenues(
+        html,
+        xml,
+        period_start="2026-07-01",
+        period_end="2026-09-30",
+        fiscal_year=2026,
+        fiscal_period="Q3",
+    )
+
+    assert len(segments) == 1
+    assert segments[0].segment_label == "Google Search & other"
+    assert segments[0].value == 63_350_000_000
+    assert segments[0].parent_id == "segment_googleservices"
+
+
 def test_normalize_segment_label_handles_member_suffix() -> None:
     assert normalize_segment_label("aapl:IPhoneMember") == "iPhone"
     assert normalize_segment_label("ServicesMember") == "Services"
+    assert normalize_segment_label("goog:GoogleServicesMember") == "Google Services"
 
 
 def test_extract_segment_revenues_filters_dimensional_facts() -> None:
@@ -111,3 +132,19 @@ def test_extract_filing_segment_revenues_matches_exact_context_and_removes_subto
         assert len(segments) == 2
         assert sum(segment.value for segment in segments) == 100.0
         assert {segment.segment_label for segment in segments} == {"iPhone", "Mac"}
+
+
+def test_extract_filing_segment_revenues_adds_residual_to_other() -> None:
+    xml = b'''<?xml version="1.0"?>
+    <xbrl xmlns="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:us-gaap="http://fasb.org/us-gaap/2025">
+        <context id="total"><period><startDate>2026-07-01</startDate><endDate>2026-09-30</endDate></period></context>
+        <context id="services"><period><startDate>2026-07-01</startDate><endDate>2026-09-30</endDate></period><entity><segment><xbrldi:explicitMember dimension="us-gaap:StatementBusinessSegmentsAxis">us-gaap:GoogleServicesMember</xbrldi:explicitMember></segment></entity></context>
+        <us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax contextRef="total">100</us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax>
+        <us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax contextRef="services">90</us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax>
+    </xbrl>'''
+
+    segments = extract_filing_segment_revenues(xml, "2026-07-01", "2026-09-30", 2026, "Q3")
+
+    assert len(segments) == 2
+    assert sum(segment.value for segment in segments) == 100.0
+    assert next(segment for segment in segments if segment.segment_label == "Other").value == 10.0

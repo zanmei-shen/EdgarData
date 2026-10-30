@@ -17,3 +17,8 @@ venv/
 # OS junk
 .DS_Store
 Thumbs.db
+# Local launchers
+*.bat
+*.jpg
+*.png
+*.jpeg

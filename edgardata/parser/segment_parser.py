@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date
 from itertools import combinations
 from typing import Any, Iterable
 import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 
 from edgardata.models.schema import SegmentRevenue
 from edgardata.parser.taxonomy_mapper import FALLBACK_CONCEPTS
@@ -16,19 +17,35 @@ def normalize_segment_label(segment_member: str) -> str:
     local_name = segment_member.split(":", 1)[-1].removesuffix("Member")
     if local_name == "IPhone":
         return "iPhone"
+    google_labels = {
+        "GoogleServices": "Google Services",
+        "GoogleCloud": "Google Cloud",
+        "AllOtherSegments": "Other",
+    }
+    if local_name in google_labels:
+        return google_labels[local_name]
     if "_" in local_name:
         return local_name.replace("_", " ").strip()
     return local_name
 
 
-def build_segment_revenue(segment_axis: str, segment_member: str, value: float, fiscal_year: int, fiscal_period: str) -> SegmentRevenue:
+def build_segment_revenue(
+    segment_axis: str,
+    segment_member: str,
+    value: float,
+    fiscal_year: int,
+    fiscal_period: str,
+    parent_id: str | None = None,
+    display_label: str | None = None,
+) -> SegmentRevenue:
     return SegmentRevenue(
         segment_axis=segment_axis,
         segment_member=segment_member,
-        segment_label=normalize_segment_label(segment_member),
+        segment_label=display_label or normalize_segment_label(segment_member),
         value=value,
         fiscal_year=fiscal_year,
         fiscal_period=fiscal_period,
+        parent_id=parent_id,
     )
 
 
@@ -43,8 +60,18 @@ def extract_segment_revenues(
         "us-gaap:ProductOrServiceAxis",
     ),
 ) -> list[SegmentRevenue]:
-    target_concepts = concepts or FALLBACK_CONCEPTS["total_revenue"]
+    preferred = (
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "SalesRevenueNet",
+        "Revenues",
+    )
     facts_by_concept = _concepts(company_facts, taxonomy)
+    # Pick the first concept that exists in company_facts
+    target_concepts = [c for c in preferred if c in facts_by_concept][:1]
+
+    # If none found, fall back to original list (rare)
+    if not target_concepts:
+        target_concepts = concepts or FALLBACK_CONCEPTS["total_revenue"][:1]
     segment_revenues: list[SegmentRevenue] = []
 
     for concept in target_concepts:
@@ -92,6 +119,7 @@ def extract_filing_segment_revenues(
     }
     candidates_by_axis: dict[str, list[tuple[str, float]]] = defaultdict(list)
     revenue_concepts = set(FALLBACK_CONCEPTS["total_revenue"])
+    undimensioned_values: list[float] = []
 
     for fact in root:
         context_ref = fact.attrib.get("contextRef")
@@ -100,42 +128,168 @@ def extract_filing_segment_revenues(
         if _local_name(fact.tag) not in revenue_concepts:
             continue
         start, end, dimensions = contexts[context_ref]
-        if start != period_start or end != period_end or not dimensions:
+        if start != period_start or end != period_end:
+            continue
+        value = _numeric_fact_value(fact)
+        if value is None:
+            continue
+        if not dimensions:
+            # Undimensioned revenue fact for the period: the filing's own
+            # reported total. Used below to pick the axis that reconciles.
+            undimensioned_values.append(value)
+            continue
+        if len(dimensions) != 1:
+            # Multi-dimensional fact (e.g. a segment x product intersection
+            # cell): its value is only a slice of the member total, so it
+            # must not be attributed to any single axis. Attributing it
+            # would duplicate members (GOOG: four "GoogleServices" entries)
+            # and could make the aggregate filter delete the true total.
             continue
         for axis, member in dimensions.items():
             if _local_name(axis) not in allowed_axes:
                 continue
-            value = _numeric_fact_value(fact)
-            if value is None:
-                continue
             candidates_by_axis[axis].append((member, value))
 
-    selected_axis = _select_segment_axis(candidates_by_axis, allowed_axes)
-    results: list[SegmentRevenue] = []
-    seen: set[tuple[str, float]] = set()
-    for member, value in _remove_aggregate_members(candidates_by_axis.get(selected_axis, [])):
-        key = (member, value)
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append(
-            build_segment_revenue(
-                segment_axis=selected_axis,
-                segment_member=member,
-                value=value,
-                fiscal_year=fiscal_year,
-                fiscal_period=fiscal_period,
+    filing_total = _most_common(undimensioned_values)
+
+    # Score every candidate axis by how well its (de-duplicated,
+    # de-aggregated) members reconcile to the filing's reported total.
+    # This rejects axes that mix parent aggregates with their children,
+    # e.g. srt:ProductOrServiceAxis in MSFT 10-Qs, where Product ($16.5B)
+    # and ServiceOther ($64.8B) double-count the 10 leaf members and the
+    # subset-sum aggregate filter cannot remove them (filing rounding of
+    # ~$2M exceeds its 1e-6 relative tolerance).
+    axis_results: dict[str, list[SegmentRevenue]] = {}
+    scored: list[tuple[float, int, str]] = []
+    for axis in candidates_by_axis:
+        results: list[SegmentRevenue] = []
+        seen: set[tuple[str, float]] = set()
+        for member, value in _remove_aggregate_members(candidates_by_axis[axis]):
+            key = (member, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(
+                build_segment_revenue(
+                    segment_axis=axis,
+                    segment_member=member,
+                    value=value,
+                    fiscal_year=fiscal_year,
+                    fiscal_period=fiscal_period,
+                )
             )
+        axis_results[axis] = results
+        segment_sum = sum(item.value for item in results)
+        if filing_total:
+            reconciliation_error = abs(segment_sum - filing_total) / abs(filing_total)
+        else:
+            # No reported total to check against: keep the old behavior and
+            # fall through to the hard-coded axis preference order.
+            reconciliation_error = float("inf")
+        scored.append((reconciliation_error, _axis_preference_rank(axis), axis))
+
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (item[0], item[1]))
+    selected_axis = scored[0][2]
+    selected_results = axis_results[selected_axis]
+    if filing_total is not None:
+        segment_sum = sum(segment.value for segment in selected_results)
+        residual = filing_total - segment_sum
+        tolerance = max(1.0, abs(filing_total) * 0.000001)
+        if residual > tolerance:
+            other_segment = next(
+                (segment for segment in selected_results if segment.segment_label == "Other"),
+                None,
+            )
+            if other_segment is not None:
+                other_segment.value += residual
+            else:
+                selected_results.append(
+                    build_segment_revenue(
+                        segment_axis=selected_axis,
+                        segment_member="ResidualRevenueMember",
+                        value=residual,
+                        fiscal_year=fiscal_year or 0,
+                        fiscal_period=fiscal_period or "",
+                        display_label="Other",
+                    )
+                )
+    return selected_results
+
+
+def extract_filing_product_revenues(
+    html_bytes: bytes,
+    xml_bytes: bytes,
+    period_start: str,
+    period_end: str,
+    fiscal_year: int,
+    fiscal_period: str,
+) -> list[SegmentRevenue]:
+    """Extract Google product revenue rows from Inline XBRL filing tables."""
+    contexts = _filing_contexts(xml_bytes)
+    parser = _InlineRevenueTableParser()
+    parser.feed(html_bytes.decode("utf-8", errors="ignore"))
+
+    label_map = {
+        "google search & other": ("GoogleSearchOtherMember", "Google Search & other"),
+        "youtube ads": ("YouTubeAdsMember", "YouTube ads"),
+        "google network": ("GoogleNetworkMember", "Google Network"),
+        "google subscriptions, platforms, and devices": (
+            "GoogleSubscriptionsPlatformsDevicesMember",
+            "Google subscriptions, platforms, and devices",
+        ),
+    }
+    segments: list[SegmentRevenue] = []
+    for row_label, facts in parser.rows:
+        normalized_label = " ".join(row_label.split()).lower()
+        matched = next(
+            (entry for label, entry in label_map.items() if normalized_label.startswith(label)),
+            None,
         )
-    return results
+        if matched is None:
+            continue
+        member, label = matched
+        for fact in facts:
+            context = contexts.get(fact.get("contextref", ""))
+            if context is None or context[:2] != (period_start, period_end):
+                continue
+            if _local_name(fact.get("name", "")) not in FALLBACK_CONCEPTS["total_revenue"]:
+                continue
+            value = _inline_fact_value(fact)
+            if value is None:
+                continue
+            segments.append(
+                build_segment_revenue(
+                    segment_axis="goog:GoogleServicesProductAxis",
+                    segment_member=f"goog:{member}",
+                    value=value,
+                    fiscal_year=fiscal_year,
+                    fiscal_period=fiscal_period,
+                    parent_id="segment_googleservices",
+                    display_label=label,
+                )
+            )
+            break
+    return segments
 
 
-def _select_segment_axis(candidates_by_axis: dict[str, list[tuple[str, float]]], allowed_axes: tuple[str, ...]) -> str:
-    for preferred_axis in ("ProductOrServiceAxis", "StatementBusinessSegmentsAxis"):
-        for axis in candidates_by_axis:
-            if _local_name(axis) == preferred_axis and _local_name(axis) in allowed_axes:
-                return axis
-    return next(iter(candidates_by_axis), "")
+_AXIS_PREFERENCE = ("ProductOrServiceAxis", "StatementBusinessSegmentsAxis")
+
+
+def _axis_preference_rank(axis: str) -> int:
+    """Lower is better. Used only to break ties between equally reconciling axes."""
+    try:
+        return _AXIS_PREFERENCE.index(_local_name(axis))
+    except ValueError:
+        return len(_AXIS_PREFERENCE)
+
+
+def _most_common(values: list[float]) -> float | None:
+    """Most frequently reported value (filings repeat the total across notes)."""
+    if not values:
+        return None
+    return Counter(values).most_common(1)[0][0]
 
 
 def _remove_aggregate_members(candidates: list[tuple[str, float]]) -> list[tuple[str, float]]:
@@ -176,6 +330,64 @@ def _xbrl_context_period(context: ET.Element) -> tuple[str, str, dict[str, str]]
             if axis and element.text:
                 dimensions[axis] = element.text
     return start, end, dimensions
+
+
+def _filing_contexts(xml_bytes: bytes) -> dict[str, tuple[str, str, dict[str, str]]]:
+    root = ET.fromstring(xml_bytes)
+    return {
+        context.attrib.get("id", ""): _xbrl_context_period(context)
+        for context in root.iter()
+        if _local_name(context.tag) == "context"
+    }
+
+
+class _InlineRevenueTableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._in_row = False
+        self._row_text: list[str] = []
+        self._row_facts: list[dict[str, str]] = []
+        self._active_fact: dict[str, str] | None = None
+        self.rows: list[tuple[str, list[dict[str, str]]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized_tag = tag.lower()
+        if normalized_tag == "tr":
+            self._in_row = True
+            self._row_text = []
+            self._row_facts = []
+        if self._in_row and normalized_tag == "ix:nonfraction":
+            fact = {key.lower(): value or "" for key, value in attrs}
+            fact["text"] = ""
+            self._row_facts.append(fact)
+            self._active_fact = fact
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.lower()
+        if self._in_row and normalized_tag == "ix:nonfraction":
+            self._active_fact = None
+        elif self._in_row and normalized_tag == "tr":
+            self.rows.append((" ".join(self._row_text), self._row_facts))
+            self._in_row = False
+
+    def handle_data(self, data: str) -> None:
+        if not self._in_row:
+            return
+        self._row_text.append(data)
+        if self._active_fact is not None:
+            self._active_fact["text"] += data
+
+
+def _inline_fact_value(fact: dict[str, str]) -> float | None:
+    raw_value = fact.get("text", "").replace(",", "").strip()
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return None
+    value *= 10 ** int(fact.get("scale", "0") or 0)
+    if fact.get("sign") == "-":
+        value = -value
+    return value
 
 
 def _numeric_fact_value(fact: ET.Element) -> float | None:

@@ -25,6 +25,7 @@ class SegmentRevenue(BaseModel):
     value: float
     fiscal_year: int
     fiscal_period: str
+    parent_id: Optional[str] = None
 
 
 class ExpenseDetail(BaseModel):
@@ -42,6 +43,9 @@ class IncomeStatementPayload(BaseModel):
     total_revenue: Optional[float] = None
     cost_of_revenue: Optional[float] = None
     operating_expenses: Optional[float] = None
+    income_before_tax: Optional[float] = None
+    other_income_expense: Optional[float] = None
+    income_tax_expense: Optional[float] = None
     net_profit: Optional[float] = None
     segments: list[SegmentRevenue] = Field(default_factory=list)
     operating_expense_details: list[ExpenseDetail] = Field(default_factory=list)

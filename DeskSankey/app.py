@@ -469,22 +469,26 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
             secondary = ""
         return f"{label}<br>${value / 1_000_000_000:.1f}B<br>{secondary}"
 
-    # Fixed coordinates keep the financial story horizontal while expenses sit below it.
+    # Keep the financial story horizontal and reserve a bounded lower band for
+    # expenses so Plotly cannot push downstream nodes outside the chart.
     segment_nodes = [node for node in nodes if node.get("kind") == "segment"]
-    segment_y = [0.08 + index * (0.72 / max(len(segment_nodes), 1)) for index in range(len(segment_nodes))]
+    segment_y = [
+        0.08 + index * (0.68 / max(len(segment_nodes) - 1, 1))
+        for index in range(len(segment_nodes))
+    ]
     positions: dict[str, tuple[float, float]] = {
-        node["id"]: (0.24, 0.45) for node in nodes
+        node["id"]: (0.28, 0.28) for node in nodes
     }
     for index, node in enumerate(segment_nodes):
-        positions[node["id"]] = (0.03, segment_y[index])
+        positions[node["id"]] = (0.08, segment_y[index])
     for node_id, x, y in (
-        ("revenue", 0.20, 0.45),
-        ("gross_profit", 0.40, 0.45),
-        ("operating_profit", 0.60, 0.45),
-        ("income_before_tax", 0.78, 0.45),
-        ("net_profit", 0.95, 0.45),
-        ("cost_of_revenue", 0.44, 0.78),
-        ("operating_expenses", 0.63, 0.78),
+        ("revenue", 0.22, 0.28),
+        ("gross_profit", 0.40, 0.28),
+        ("operating_profit", 0.58, 0.28),
+        ("income_before_tax", 0.75, 0.28),
+        ("net_profit", 0.91, 0.28),
+        ("cost_of_revenue", 0.40, 0.62),
+        ("operating_expenses", 0.58, 0.62),
     ):
         if node_id in node_index:
             positions[node_id] = (x, y)
@@ -495,7 +499,10 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
         and node["id"] not in {"cost_of_revenue", "operating_expenses"}
     ]
     for index, node in enumerate(expense_nodes):
-        positions[node["id"]] = (0.78 + (index % 2) * 0.15, 0.70 + (index // 2) * 0.12)
+        positions[node["id"]] = (
+            0.74 + (index % 2) * 0.12,
+            0.56 + (index // 2) * 0.11,
+        )
 
     node_x = [positions[node["id"]][0] for node in nodes]
     node_y = [positions[node["id"]][1] for node in nodes]
@@ -527,8 +534,8 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
                 "weight": 700,
             },
             node={
-                "pad": 34,
-                "thickness": 30,
+                "pad": 20,
+                "thickness": 24,
                 "line": {"color": "rgba(0,0,0,0)", "width": 0},
                 "label": node_labels,
                 "color": node_colors,
@@ -564,7 +571,7 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
         },
     ]
     fig.update_layout(
-        margin={"l": 20, "r": 30, "t": 150, "b": 45},
+        margin={"l": 40, "r": 50, "t": 135, "b": 30},
         height=900,
         plot_bgcolor=PALETTE["background"],
         paper_bgcolor=PALETTE["background"],

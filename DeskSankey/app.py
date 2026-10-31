@@ -386,35 +386,17 @@ def tables_to_payload(top_level_df: pd.DataFrame, segments_df: pd.DataFrame, exp
     )
 
 
-def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
+def sankey_figure(graph_data: dict[str, Any], height: int = 780) -> go.Figure:
     nodes = graph_data["nodes"]
     links = graph_data["links"]
     node_ids = [node["id"] for node in nodes]
     node_index = {node_id: index for index, node_id in enumerate(node_ids)}
     node_colors = []
     for node in nodes:
-        color = node.get("color") or DEFAULT_KIND_COLORS.get(node.get("kind", ""), "#9aa5b1")
-        if node["id"] == "gross_profit":
-            color = PALETTE["gross_green"]
-        elif node["id"] in {"operating_profit", "income_before_tax"}:
-            color = PALETTE["operating_green"]
-        elif node["id"] == "net_profit":
-            color = PALETTE["net_green"]
-        elif node.get("kind") in {"expense", "expense_detail"}:
-            color = PALETTE["expense_red"]
-        elif node.get("kind") == "segment":
-            label = node.get("label", "").lower()
-            if "search" in label:
-                color = PALETTE["search_blue"]
-            elif "youtube" in label:
-                color = PALETTE["youtube_blue"]
-            elif "cloud" in label:
-                color = PALETTE["cloud_gold"]
-            elif any(word in label for word in ("subscription", "other")):
-                color = PALETTE["subscription_gold"]
-            else:
-                color = PALETTE["search_blue"]
-        node_colors.append(color)
+        node_colors.append(
+            node.get("color")
+            or DEFAULT_KIND_COLORS.get(node.get("kind", ""), "#9aa5b1")
+        )
     for target_index, target in enumerate(nodes):
         if target.get("kind") != "segment":
             continue
@@ -425,9 +407,11 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
         if incoming:
             largest_source = max(incoming, key=lambda link: link["value"])
             merge_color = node_colors[node_index[largest_source["source"]]]
-            node_colors[target_index] = merge_color
+            if not nodes[target_index].get("color"):
+                node_colors[target_index] = merge_color
             for link in incoming:
-                node_colors[node_index[link["source"]]] = merge_color
+                if not nodes[node_index[link["source"]]].get("color"):
+                    node_colors[node_index[link["source"]]] = merge_color
     revenue_index = node_index.get("revenue")
     if revenue_index is not None:
         revenue_sources = [
@@ -467,28 +451,29 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
             secondary = f"{value / revenue:.0%} of revenue" if revenue else ""
         else:
             secondary = ""
-        return f"{label}<br>${value / 1_000_000_000:.1f}B<br>{secondary}"
+        value_text = f"${value / 1_000_000_000:.1f}B"
+        return f"{label}<br>{value_text}<br>{secondary}" if secondary else f"{label}<br>{value_text}"
 
     # Keep the financial story horizontal and reserve a bounded lower band for
     # expenses so Plotly cannot push downstream nodes outside the chart.
     segment_nodes = [node for node in nodes if node.get("kind") == "segment"]
     segment_y = [
-        0.08 + index * (0.68 / max(len(segment_nodes) - 1, 1))
+        0.15 + index * (0.67 / max(len(segment_nodes) - 1, 1))
         for index in range(len(segment_nodes))
     ]
     positions: dict[str, tuple[float, float]] = {
-        node["id"]: (0.28, 0.28) for node in nodes
+        node["id"]: (0.26, 0.30) for node in nodes
     }
     for index, node in enumerate(segment_nodes):
-        positions[node["id"]] = (0.08, segment_y[index])
+        positions[node["id"]] = (0.05, segment_y[index])
     for node_id, x, y in (
-        ("revenue", 0.22, 0.28),
-        ("gross_profit", 0.40, 0.28),
-        ("operating_profit", 0.58, 0.28),
-        ("income_before_tax", 0.75, 0.28),
-        ("net_profit", 0.91, 0.28),
-        ("cost_of_revenue", 0.40, 0.62),
-        ("operating_expenses", 0.58, 0.62),
+        ("revenue", 0.20, 0.30),
+        ("gross_profit", 0.38, 0.30),
+        ("operating_profit", 0.56, 0.30),
+        ("income_before_tax", 0.73, 0.30),
+        ("net_profit", 0.89, 0.30),
+        ("cost_of_revenue", 0.38, 0.67),
+        ("operating_expenses", 0.56, 0.67),
     ):
         if node_id in node_index:
             positions[node_id] = (x, y)
@@ -500,8 +485,8 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
     ]
     for index, node in enumerate(expense_nodes):
         positions[node["id"]] = (
-            0.74 + (index % 2) * 0.12,
-            0.56 + (index // 2) * 0.11,
+            0.72 + (index % 2) * 0.12,
+            0.58 + (index // 2) * 0.12,
         )
 
     node_x = [positions[node["id"]][0] for node in nodes]
@@ -515,10 +500,8 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
         target_kind = target.get("kind")
         if source_kind == "segment":
             color = node_colors[node_index[link["source"]]]
-        elif target_kind in {"expense", "expense_detail"}:
-            color = PALETTE["expense_red"]
         else:
-            color = PALETTE["operating_green"]
+            color = node_colors[node_index[link["target"]]]
         link_colors.append(hex_to_rgba(color, 0.48))
 
     node_labels = [metric_text(node) for node in nodes]
@@ -528,14 +511,14 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
             valueformat=",.0f",
             textfont={
                 "family": "Inter, Segoe UI, sans-serif",
-                "size": 16,
+                "size": 13,
                 "color": PALETTE["secondary_gray"],
                 "shadow": "none",
                 "weight": 700,
             },
             node={
-                "pad": 20,
-                "thickness": 24,
+                "pad": 26,
+                "thickness": 20,
                 "line": {"color": "rgba(0,0,0,0)", "width": 0},
                 "label": node_labels,
                 "color": node_colors,
@@ -553,32 +536,32 @@ def sankey_figure(graph_data: dict[str, Any]) -> go.Figure:
     annotations = [
         {
             "x": 0.5,
-            "y": 1.14,
+            "y": 1.10,
             "xref": "paper",
             "yref": "paper",
             "text": f"<b>{graph_data.get('ticker', '')} {graph_data.get('period', '')} Income Statement</b>",
             "showarrow": False,
-            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 38, "color": PALETTE["title_blue"]},
+            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 30, "color": PALETTE["title_blue"]},
         },
         {
             "x": 0.5,
-            "y": 1.075,
+            "y": 1.035,
             "xref": "paper",
             "yref": "paper",
             "text": "Revenue sources → profit conversion → expenses and tax",
             "showarrow": False,
-            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 16, "color": PALETTE["secondary_gray"]},
+            "font": {"family": "Inter, Segoe UI, sans-serif", "size": 12, "color": PALETTE["secondary_gray"]},
         },
     ]
     fig.update_layout(
-        margin={"l": 40, "r": 50, "t": 135, "b": 30},
-        height=900,
+        margin={"l": 35, "r": 55, "t": 105, "b": 30},
+        height=height,
         plot_bgcolor=PALETTE["background"],
         paper_bgcolor=PALETTE["background"],
         annotations=annotations,
         font={
             "family": "Inter, Segoe UI, sans-serif",
-            "size": 16,
+            "size": 13,
             "color": PALETTE["secondary_gray"],
         },
         hoverlabel={
@@ -815,6 +798,15 @@ with right_col:
     st.subheader("Graph preview")
     graph = build_tencent_style_sankey_graph(st.session_state.payload)
     graph_data = graph.model_dump()
+    chart_height = st.slider(
+        "Sankey frame height",
+        min_value=520,
+        max_value=1200,
+        value=780,
+        step=20,
+        help="Resize the visualization frame without changing the draggable node layout.",
+    )
+    graph_placeholder = st.empty()
     color_map = build_color_controls(graph_data)
     graph_data = graph_with_colors(graph, color_map)
     summary_col1, summary_col2, summary_col3 = st.columns(3)
@@ -825,7 +817,10 @@ with right_col:
         f'<div class="desk-panel"><div class="desk-small"><strong>Matched company:</strong> {st.session_state.company_info.get("name", "Unknown")} | <strong>CIK:</strong> {str(st.session_state.company_info.get("cik_str", st.session_state.payload.cik)).zfill(10)}</div></div>',
         unsafe_allow_html=True,
     )
-    st.plotly_chart(sankey_figure(graph_data), width="stretch")
+    graph_placeholder.plotly_chart(
+        sankey_figure(graph_data, height=chart_height),
+        width="stretch",
+    )
 
 st.divider()
 

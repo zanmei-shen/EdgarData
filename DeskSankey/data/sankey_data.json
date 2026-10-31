@@ -9,7 +9,7 @@
       "stage": 0,
       "kind": "segment",
       "value": 30739000000.0,
-      "color": "#4E73DF"
+      "color": "#df8b4e"
     },
     {
       "id": "segment_iphone",
@@ -17,7 +17,7 @@
       "stage": 0,
       "kind": "segment",
       "value": 54252000000.0,
-      "color": "#4E73DF"
+      "color": "#df4e8b"
     },
     {
       "id": "segment_mac",

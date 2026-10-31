@@ -68,6 +68,25 @@ def test_build_tencent_style_sankey_graph_includes_expense_details_when_present(
     assert any(link.source == "operating_expenses" and link.target == "expense_sales_marketing" for link in graph.links)
 
 
+def test_build_graph_handles_negative_profit_flows() -> None:
+    payload = IncomeStatementPayload(
+        ticker="LOSS",
+        cik="0000000000",
+        fiscal_year=2026,
+        fiscal_period="Q3",
+        total_revenue=100.0,
+        cost_of_revenue=140.0,
+        operating_expenses=20.0,
+        net_profit=-70.0,
+    )
+
+    graph = build_tencent_style_sankey_graph(payload)
+
+    assert all(link.value >= 0 for link in graph.links)
+    assert graph.top_level["gross_profit"] == -40.0
+    assert graph.top_level["operating_profit"] == -60.0
+
+
 def test_build_graph_preserves_nested_segment_flow() -> None:
     payload = IncomeStatementPayload(
         ticker="GOOG",

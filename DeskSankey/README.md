@@ -4,7 +4,7 @@ DeskSankey is a small local UI app for generating and editing Sankey diagrams fr
 
 ## What it does
 
-- Accepts a stock ticker in a graphical interface
+- Accepts a stock ticker or company name in a graphical interface
 - Lets the user choose a fiscal period type such as year or quarter
 - Resolves the ticker to a SEC company record when live mode is enabled
 - Loads a normalized income statement payload
@@ -46,7 +46,7 @@ If you want to use the UI against the local EDGAR extractor package, install the
 
 ## Input and output
 
-The app currently expects a ticker and a normalized income statement payload. In v1 it can use a sample payload when live ticker resolution is not available, but the design supports wiring in the EDGAR pipeline later.
+The app accepts a ticker or company name and a normalized income statement payload. In live mode, company names are resolved through the SEC company directory and ambiguous matches are presented for selection. Unknown names and tickers are rejected with a validation message. Sample mode continues to accept arbitrary ticker text for sample payload generation.
 
 Before generating, the user can choose a fiscal year and either an annual period (`FY`) or a quarter (`Q1`, `Q2`, `Q3`, `Q4`). The selected period is passed through to the payload and the Sankey graph label.
 
@@ -66,8 +66,8 @@ The output JSON follows the layered Sankey contract:
 
 The user flow is:
 
-1. Enter ticker
-2. Click Generate
+1. Enter a ticker or company name and choose from live-ranked suggestions
+2. Press Enter to process the value, or click Generate
 3. Review income table
 4. Adjust values if needed
 5. Pick colors for individual segments and branches if desired

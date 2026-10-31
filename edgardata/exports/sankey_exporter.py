@@ -178,8 +178,13 @@ def build_tencent_style_sankey_graph(payload: IncomeStatementPayload) -> SankeyG
         for segment in payload.segments
     ]
 
-    if any(link.value < 0 for link in links):
-        raise ValueError("Sankey links must have non-negative values")
+    # Sankey flows are magnitudes and cannot represent a signed loss flow.
+    # Preserve signed financial values in nodes/top_level while omitting
+    # negative rendered flows.
+    links = [
+        link.model_copy(update={"value": max(0.0, link.value)})
+        for link in links
+    ]
 
     return SankeyGraph(
         ticker=payload.ticker,

@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import httpx
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -16,6 +18,11 @@ if str(ROOT_DIR) not in sys.path:
 
 from edgardata.exports.sankey_exporter import build_tencent_style_sankey_graph
 from edgardata.ingestion.edgar_client import EdgarIngestionEngine
+from edgardata.ingestion.company_lookup import (
+    company_record_label,
+    company_records,
+    lookup_company_records,
+)
 from edgardata.models.schema import ExpenseDetail, IncomeStatementPayload, SegmentRevenue
 from edgardata.parser.segment_parser import extract_filing_product_revenues, extract_filing_segment_revenues
 from edgardata.parser.taxonomy_mapper import resolve_metric_fact
@@ -25,6 +32,14 @@ from edgardata.pipeline.reconciliation import reconcile_revenue
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
 OUTPUT_PATH = DATA_DIR / "sankey_data.json"
+
+
+def most_recent_completed_quarter(today: date | None = None) -> str:
+    current_date = today or date.today()
+    current_quarter = (current_date.month - 1) // 3 + 1
+    completed_quarter = current_quarter - 1 or 4
+    return f"Q{completed_quarter}"
+
 
 DEFAULT_KIND_COLORS = {
     "segment": "#4E73DF",
@@ -99,6 +114,12 @@ st.markdown(
 st.caption("Generate and edit a Tencent-style Sankey diagram from normalized EDGAR income data.")
 
 USER_AGENT = os.getenv("EDGAR_USER_AGENT", "DeskSankey desk@yourcompany.com")
+
+
+@st.cache_data(show_spinner=False)
+def load_company_tickers() -> dict[str, Any]:
+    client = EdgarIngestionEngine(user_agent=USER_AGENT)
+    return client.fetch_company_tickers()
 
 
 @st.cache_data
@@ -281,19 +302,8 @@ def load_live_payload(ticker: str, fiscal_year: int, fiscal_period: str) -> Inco
 
 
 def lookup_company_record_for_ticker(ticker: str, company_tickers: dict[str, Any]) -> dict[str, Any] | None:
-    ticker = ticker.upper().strip()
-    records = company_tickers.get("data")
-    if isinstance(records, list):
-        for record in records:
-            if str(record.get("ticker", "")).upper().strip() == ticker:
-                return record
-
-    if isinstance(company_tickers, dict):
-        for value in company_tickers.values():
-            if isinstance(value, dict) and str(value.get("ticker", "")).upper().strip() == ticker:
-                return value
-
-    return None
+    matches = lookup_company_records(ticker, company_tickers)
+    return matches[0] if matches else None
 
 
 def lookup_primary_document_for_accession(submissions: dict[str, Any], accession: str) -> str | None:
@@ -629,17 +639,90 @@ if "source_mode" not in st.session_state:
 if "company_info" not in st.session_state:
     st.session_state.company_info = {"name": "Sample payload", "ticker": "AAPL", "cik_str": "0000320193"}
 if "fiscal_year_input" not in st.session_state:
-    st.session_state.fiscal_year_input = 2025
+    st.session_state.fiscal_year_input = date.today().year
 if "period_kind" not in st.session_state:
-    st.session_state.period_kind = "Year"
+    st.session_state.period_kind = "Quarter"
 if "quarter_input" not in st.session_state:
-    st.session_state.quarter_input = "Q2"
+    st.session_state.quarter_input = most_recent_completed_quarter()
+if "ticker_input_changed" not in st.session_state:
+    st.session_state.ticker_input_changed = False
+if "ticker_input_widget" not in st.session_state:
+    st.session_state.ticker_input_widget = st.session_state.ticker_input
+if "company_suggestion" not in st.session_state:
+    st.session_state.company_suggestion = None
+
+
+def request_ticker_generation() -> None:
+    """Run the same workflow when the ticker input is committed with Enter."""
+
+    st.session_state.company_suggestion = None
+    st.session_state.ticker_input_changed = True
+
+
+def apply_company_suggestion() -> None:
+    suggestion = st.session_state.company_suggestion
+    if suggestion:
+        st.session_state.ticker_input_widget = suggestion
+        st.session_state.ticker_input_changed = False
+
 
 left_col, right_col = st.columns([0.32, 0.68], gap="large")
 
 with left_col:
     st.subheader("Generate")
-    ticker = st.text_input("Ticker", value=st.session_state.ticker_input, placeholder="AAPL")
+    company_matches: list[dict[str, Any]] = []
+    selected_company = None
+    if st.session_state.source_mode == "live":
+        try:
+            company_tickers = load_company_tickers()
+            company_matches = company_records(company_tickers)
+        except (httpx.HTTPError, TimeoutError, RuntimeError) as exc:
+            st.warning(f"Unable to load the SEC company directory: {exc}")
+            company_tickers = None
+            company_matches = []
+
+        ticker_options = [company_record_label(record) for record in company_matches]
+        current_ticker = st.session_state.ticker_input.upper().strip()
+        current_index = next(
+            (
+                index
+                for index, record in enumerate(company_matches)
+                if str(record.get("ticker", "")).upper().strip() == current_ticker
+            ),
+            0,
+        )
+        selected_label = st.selectbox(
+            "Ticker",
+            options=ticker_options,
+            index=current_index if ticker_options else None,
+            key="ticker_company_option",
+            help="Click to browse companies or type a ticker or company name to filter.",
+        )
+        selected_index = ticker_options.index(selected_label) if selected_label else None
+        selected_company = (
+            company_matches[selected_index] if selected_index is not None else None
+        )
+        ticker = (
+            str(selected_company.get("ticker", "")).strip().upper()
+            if selected_company
+            else ""
+        )
+    else:
+        ticker = st.text_input(
+            "Ticker",
+            placeholder="AAPL",
+            key="ticker_input_widget",
+            on_change=request_ticker_generation,
+        )
+        if ticker.strip():
+            try:
+                company_tickers = load_company_tickers()
+                company_matches = lookup_company_records(ticker, company_tickers)
+            except (httpx.HTTPError, TimeoutError, RuntimeError) as exc:
+                st.warning(f"Unable to load the SEC company directory: {exc}")
+        if len(company_matches) == 1:
+            selected_company = company_matches[0]
+
     fiscal_year = st.number_input("Fiscal year", min_value=2000, max_value=2100, value=st.session_state.fiscal_year_input, step=1)
     period_kind = st.radio("Fiscal period type", ["Year", "Quarter"], horizontal=True, key="period_kind")
     if period_kind == "Quarter":
@@ -654,8 +737,25 @@ with left_col:
         unsafe_allow_html=True,
     )
 
-if generate_clicked:
-    st.session_state.ticker_input = ticker.upper().strip()
+auto_generate_requested = st.session_state.ticker_input_changed
+generate_requested = generate_clicked or auto_generate_requested
+st.session_state.ticker_input_changed = False
+
+if generate_requested:
+    if st.session_state.source_mode == "live":
+        if not company_matches:
+            st.error(f"Could not identify company or ticker: {ticker.strip() or '(empty input)'}.")
+            st.stop()
+        if len(company_matches) > 1 and auto_generate_requested and not generate_clicked:
+            st.info("Select the matching company, then click Generate.")
+            st.stop()
+        resolved_ticker = str(
+            (selected_company or company_matches[0]).get("ticker", "")
+        ).strip().upper()
+    else:
+        resolved_ticker = ticker.upper().strip()
+
+    st.session_state.ticker_input = resolved_ticker
     st.session_state.fiscal_year_input = int(fiscal_year)
     if st.session_state.source_mode == "live":
         try:

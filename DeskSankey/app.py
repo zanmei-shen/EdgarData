@@ -64,33 +64,36 @@ PALETTE = {
     "secondary_gray": "#555555",
 }
 
-st.set_page_config(page_title="DeskSankey", layout="wide")
+st.set_page_config(page_title="Sankey", layout="wide")
 
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1.25rem;
+            padding-top: 1.75rem;
             padding-bottom: 1.5rem;
             max-width: 1480px;
         }
         .desk-hero {
             padding: 1rem 1.25rem;
             border-radius: 18px;
-            background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(37, 99, 235, 0.92));
-            color: white;
+            background: #B7D7F0;
+            color: #214B84;
             box-shadow: 0 18px 45px rgba(15, 23, 42, 0.20);
             margin-bottom: 1rem;
+            text-align: center;
         }
         .desk-hero h1 {
             margin: 0;
             font-size: 2rem;
             line-height: 1.1;
+            text-align: center;
         }
         .desk-hero p {
             margin: 0.35rem 0 0 0;
-            opacity: 0.9;
+            color: #365B7D;
             font-size: 0.98rem;
+            text-align: center;
         }
         .desk-panel {
             padding: 0.75rem 0.9rem;
@@ -104,14 +107,14 @@ st.markdown(
         }
     </style>
     <div class="desk-hero">
-        <h1>DeskSankey</h1>
+        <h1>Sankey</h1>
         <p>Enter a ticker, generate a layered income flow graph, edit the numbers, and download the JSON.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.caption("Generate and edit a Tencent-style Sankey diagram from normalized EDGAR income data.")
+st.caption("Generate and edit a Sankey diagram from normalized EDGAR income data.")
 
 USER_AGENT = os.getenv("EDGAR_USER_AGENT", "DeskSankey desk@yourcompany.com")
 
@@ -524,12 +527,14 @@ def sankey_figure(graph_data: dict[str, Any], height: int = 780) -> go.Figure:
                 "color": node_colors,
                 "x": node_x,
                 "y": node_y,
+                "hovertemplate": "%{label}<extra></extra>",
             },
             link={
                 "source": [node_index[link["source"]] for link in links],
                 "target": [node_index[link["target"]] for link in links],
                 "value": [link["value"] for link in links],
                 "color": link_colors,
+                "hovertemplate": "%{value:,.0f}<extra></extra>",
             },
         )
     )

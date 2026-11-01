@@ -1,54 +1,14 @@
 {
-  "ticker": "AAPL",
-  "period": "Q3FY2026",
+  "ticker": "NXDR",
+  "period": "Q2FY2025",
   "currency": "USD",
   "nodes": [
-    {
-      "id": "segment_service",
-      "label": "Service",
-      "stage": 0,
-      "kind": "segment",
-      "value": 30739000000.0,
-      "color": "#df8b4e"
-    },
-    {
-      "id": "segment_iphone",
-      "label": "iPhone",
-      "stage": 0,
-      "kind": "segment",
-      "value": 54252000000.0,
-      "color": "#df4e8b"
-    },
-    {
-      "id": "segment_mac",
-      "label": "Mac",
-      "stage": 0,
-      "kind": "segment",
-      "value": 10352000000.0,
-      "color": "#4E73DF"
-    },
-    {
-      "id": "segment_ipad",
-      "label": "IPad",
-      "stage": 0,
-      "kind": "segment",
-      "value": 6191000000.0,
-      "color": "#4E73DF"
-    },
-    {
-      "id": "segment_wearableshomeandaccessories",
-      "label": "WearablesHomeandAccessories",
-      "stage": 0,
-      "kind": "segment",
-      "value": 7883000000.0,
-      "color": "#4E73DF"
-    },
     {
       "id": "revenue",
       "label": "Revenue",
       "stage": 1,
       "kind": "subtotal",
-      "value": 109417000000.0,
+      "value": 65093000.0,
       "color": "#4C9A2A"
     },
     {
@@ -56,7 +16,7 @@
       "label": "Cost of revenue",
       "stage": 2,
       "kind": "expense",
-      "value": 54647000000.0,
+      "value": 10643000.0,
       "color": "#C82814"
     },
     {
@@ -64,7 +24,7 @@
       "label": "Gross profit",
       "stage": 2,
       "kind": "subtotal",
-      "value": 54770000000.0,
+      "value": 54450000.0,
       "color": "#4C9A2A"
     },
     {
@@ -72,7 +32,7 @@
       "label": "Operating expenses",
       "stage": 3,
       "kind": "expense",
-      "value": 19075000000.0,
+      "value": 74726000.0,
       "color": "#C82814"
     },
     {
@@ -80,7 +40,7 @@
       "label": "Operating profit",
       "stage": 4,
       "kind": "subtotal",
-      "value": 35695000000.0,
+      "value": -20276000.0,
       "color": "#4C9A2A"
     },
     {
@@ -88,7 +48,7 @@
       "label": "Income before tax",
       "stage": 6,
       "kind": "subtotal",
-      "value": 36267000000.0,
+      "value": -15094000.0,
       "color": "#4C9A2A"
     },
     {
@@ -96,7 +56,7 @@
       "label": "Net profit",
       "stage": 8,
       "kind": "final",
-      "value": 29789000000.0,
+      "value": -15362000.0,
       "color": "#3D8F22"
     },
     {
@@ -104,7 +64,7 @@
       "label": "Other income",
       "stage": 5,
       "kind": "income",
-      "value": 572000000.0,
+      "value": 5182000.0,
       "color": "#9aa5b1"
     },
     {
@@ -112,7 +72,7 @@
       "label": "Income tax",
       "stage": 7,
       "kind": "expense",
-      "value": 6478000000.0,
+      "value": 268000.0,
       "color": "#C82814"
     },
     {
@@ -120,7 +80,7 @@
       "label": "R&D",
       "stage": 4,
       "kind": "expense_detail",
-      "value": 11729000000.0,
+      "value": 34622000.0,
       "color": "#C82814"
     },
     {
@@ -128,7 +88,7 @@
       "label": "Sales & marketing",
       "stage": 4,
       "kind": "expense_detail",
-      "value": 5034000000.0,
+      "value": 24334000.0,
       "color": "#C82814"
     },
     {
@@ -136,144 +96,88 @@
       "label": "General & admin",
       "stage": 4,
       "kind": "expense_detail",
-      "value": 2312000000.0,
+      "value": 15770000.0,
       "color": "#C82814"
     }
   ],
   "links": [
     {
-      "source": "segment_service",
-      "target": "revenue",
-      "value": 30739000000.0,
-      "kind": "flow"
-    },
-    {
-      "source": "segment_iphone",
-      "target": "revenue",
-      "value": 54252000000.0,
-      "kind": "flow"
-    },
-    {
-      "source": "segment_mac",
-      "target": "revenue",
-      "value": 10352000000.0,
-      "kind": "flow"
-    },
-    {
-      "source": "segment_ipad",
-      "target": "revenue",
-      "value": 6191000000.0,
-      "kind": "flow"
-    },
-    {
-      "source": "segment_wearableshomeandaccessories",
-      "target": "revenue",
-      "value": 7883000000.0,
-      "kind": "flow"
-    },
-    {
       "source": "revenue",
       "target": "gross_profit",
-      "value": 54770000000.0,
+      "value": 54450000.0,
       "kind": "flow"
     },
     {
       "source": "revenue",
       "target": "cost_of_revenue",
-      "value": 54647000000.0,
+      "value": 10643000.0,
       "kind": "flow"
     },
     {
       "source": "gross_profit",
       "target": "operating_profit",
-      "value": 35695000000.0,
+      "value": 0.0,
       "kind": "flow"
     },
     {
       "source": "gross_profit",
       "target": "operating_expenses",
-      "value": 19075000000.0,
+      "value": 74726000.0,
       "kind": "flow"
     },
     {
       "source": "operating_expenses",
       "target": "expense_r_d",
-      "value": 11729000000.0,
+      "value": 34622000.0,
       "kind": "flow"
     },
     {
       "source": "operating_expenses",
       "target": "expense_sales_marketing",
-      "value": 5034000000.0,
+      "value": 24334000.0,
       "kind": "flow"
     },
     {
       "source": "operating_expenses",
       "target": "expense_general_admin",
-      "value": 2312000000.0,
+      "value": 15770000.0,
       "kind": "flow"
     },
     {
       "source": "operating_profit",
       "target": "income_before_tax",
-      "value": 35695000000.0,
+      "value": 0.0,
       "kind": "flow"
     },
     {
       "source": "other_income",
       "target": "income_before_tax",
-      "value": 572000000.0,
+      "value": 5182000.0,
       "kind": "flow"
     },
     {
       "source": "income_before_tax",
       "target": "net_profit",
-      "value": 29789000000.0,
+      "value": 0.0,
       "kind": "flow"
     },
     {
       "source": "income_before_tax",
       "target": "income_tax",
-      "value": 6478000000.0,
+      "value": 268000.0,
       "kind": "flow"
     }
   ],
   "top_level": {
-    "total_revenue": 109417000000.0,
-    "cost_of_revenue": 54647000000.0,
-    "gross_profit": 54770000000.0,
-    "operating_expenses": 19075000000.0,
-    "operating_profit": 35695000000.0,
-    "income_before_tax": 36267000000.0,
-    "other_income_expense": 572000000.0,
-    "income_tax_expense": 6478000000.0,
-    "net_profit": 29789000000.0
+    "total_revenue": 65093000.0,
+    "cost_of_revenue": 10643000.0,
+    "gross_profit": 54450000.0,
+    "operating_expenses": 74726000.0,
+    "operating_profit": -20276000.0,
+    "income_before_tax": -15094000.0,
+    "other_income_expense": 5182000.0,
+    "income_tax_expense": 268000.0,
+    "net_profit": -15362000.0
   },
-  "segment_breakdown": [
-    {
-      "source": "Service",
-      "target": "Revenue",
-      "value": 30739000000.0
-    },
-    {
-      "source": "iPhone",
-      "target": "Revenue",
-      "value": 54252000000.0
-    },
-    {
-      "source": "Mac",
-      "target": "Revenue",
-      "value": 10352000000.0
-    },
-    {
-      "source": "IPad",
-      "target": "Revenue",
-      "value": 6191000000.0
-    },
-    {
-      "source": "WearablesHomeandAccessories",
-      "target": "Revenue",
-      "value": 7883000000.0
-    }
-  ]
+  "segment_breakdown": []
 }
